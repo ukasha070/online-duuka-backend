@@ -1,0 +1,14 @@
+Hello {{ full_name }},
+
+We noticed a new login to your account.
+
+Login details:
+
+Time: {{ login_time }}
+IP address: {{ ip_address }}
+Location: {{ location }}
+Device: {{ user_agent }}
+
+If this was you, no action is needed.
+
+If this was not you, please change your password immediately.

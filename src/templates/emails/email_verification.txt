@@ -1,0 +1,7 @@
+Hello {{ full_name }},
+
+Please verify your email address by opening this link:
+
+{{ verification_link }}
+
+This verification link will expire in {{ expiry_minutes }} minutes.

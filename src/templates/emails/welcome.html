@@ -1,0 +1,15 @@
+{% extends "emails/base.html" %}
+
+{% block title %}Welcome to {{ app_name }}{% endblock %}
+
+{% block heading %}
+Welcome to {{ app_name }}
+{% endblock %}
+
+{% block content %}
+<p>Hello <strong>{{ full_name }}</strong>,</p>
+
+<p>Your account has been created successfully.</p>
+
+<p>You can now log in and start using your account.</p>
+{% endblock %}

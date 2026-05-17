@@ -1,0 +1,7 @@
+Hello {{ full_name }},
+
+Welcome to {{ app_name }}.
+
+Your account has been created successfully.
+
+You can now log in and start using your account.

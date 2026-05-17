@@ -1,0 +1,13 @@
+Hello {{ full_name }},
+
+{{ description }}
+
+Details:
+
+Time: {{ occurred_at }}
+IP address: {{ ip_address }}
+Device: {{ user_agent }}
+
+If this was you, no action is needed.
+
+If this was not you, please change your password immediately.
