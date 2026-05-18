@@ -2,6 +2,7 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 import hashlib
 
+from fastapi import HTTPException, status
 from sqlmodel import col, select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
@@ -97,6 +98,7 @@ async def create_login_session(
     browser_name: Optional[str],
     user_agent: Optional[str],
     ip_address: Optional[str],
+    remember_me: bool,
 ) -> LoginSession:
     """
     Called after successful login.
@@ -109,7 +111,14 @@ async def create_login_session(
     await delete_expired_sessions_for_user(db=db, user_id=user_id)
 
     now = utc_now()
-    expires_at = now + timedelta(days=settings.REFRESH_TOKEN_EXPIRE_DAYS)
+
+    refresh_days = (
+        settings.REFRESH_TOKEN_EXPIRE_REMEMBER_ME_DAYS
+        if remember_me
+        else settings.REFRESH_TOKEN_EXPIRE_DAYS
+    )
+
+    expires_at = now + timedelta(days=refresh_days)
 
     device_id = device_id if device_id else generate_random_id("device")
 
@@ -167,7 +176,7 @@ async def create_login_session(
             session=UserSession(**existing_session.model_dump()),
         )
 
-    session_id = generate_random_id("session")
+    session_id = generate_random_id("sess")
 
     refresh_token = create_refresh_token(
         user_id=user_id,
@@ -219,15 +228,14 @@ async def refresh_user_session(
     db: AsyncSession,
     refresh_token: str,
     ip_address: Optional[str] = None,
-) -> dict:
+) -> str:
     """
-    Refresh-token rotation:
-    - old refresh token comes in
+    Non-rotating refresh token flow:
+    - refresh token comes in
     - validate JWT
     - check hash against DB
-    - create new access token
-    - create new refresh token
-    - replace DB hash with new refresh token hash
+    - create new access token only
+    - keep the same refresh token valid until expiry
     """
     try:
         payload = decode_refresh_token(refresh_token)
@@ -255,7 +263,10 @@ async def refresh_user_session(
     user_session = result.first()
 
     if not user_session:
-        raise ValueError("Invalid or revoked session")
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Session not found or does not belong to the current user.",
+        )
 
     new_access_token = create_access_token(
         user_id=user_id,
@@ -263,13 +274,6 @@ async def refresh_user_session(
         extra_claims={"device_id": user_session.device_id},
     )
 
-    new_refresh_token = create_refresh_token(
-        user_id=user_id,
-        session_id=session_id,
-        extra_claims={"device_id": user_session.device_id},
-    )
-
-    user_session.refresh_token_hash = hash_token(new_refresh_token)
     user_session.last_seen_at = now
 
     if ip_address:
@@ -279,11 +283,7 @@ async def refresh_user_session(
     await db.commit()
     await db.refresh(user_session)
 
-    return {
-        "access_token": new_access_token,
-        "refresh_token": new_refresh_token,
-        "session": user_session,
-    }
+    return new_access_token
 
 
 async def delete_session_by_refresh_token(
@@ -337,3 +337,35 @@ async def delete_all_user_sessions(
     await db.commit()
 
     return count
+
+
+async def get_sessions_by_user_id(db: AsyncSession, user_id: str):
+    statement = (
+        select(UserSession)
+        .where(UserSession.user_id == user_id)
+        .order_by(col(UserSession.last_seen_at).desc())
+    )
+
+    result = await db.exec(statement)
+    sessions = result.all()
+
+    return sessions
+
+
+async def delete_user_session_by_id(
+    db: AsyncSession, session_id: str, user_id: str
+) -> bool:
+    statement = select(UserSession).where(
+        UserSession.id == session_id, UserSession.user_id == user_id
+    )
+
+    result = await db.exec(statement)
+    user_session = result.first()
+
+    if not user_session:
+        return False
+
+    await db.delete(user_session)
+    await db.commit()
+
+    return True

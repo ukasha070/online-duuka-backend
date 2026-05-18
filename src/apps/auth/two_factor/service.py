@@ -1,5 +1,6 @@
 import secrets
 import hashlib
+from fastapi import HTTPException, status
 import pyotp
 
 from dataclasses import dataclass
@@ -279,7 +280,10 @@ class AuthenticatorAppService:
         authenticator = await self.get_for_user(db=db, user_id=user_id)
 
         if not authenticator or authenticator.is_enabled:
-            return None
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="2FA is already enabled.",
+            )
 
         if not self._verify_totp(secret=authenticator.secret, code=code):
             return None

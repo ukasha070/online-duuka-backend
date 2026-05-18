@@ -54,7 +54,7 @@ class TwoFactorVerifyPayload(BaseModel):
     )
     code: str = Field(
         min_length=6,
-        max_length=9,  # TOTP is 6 digits; recovery codes are 9 chars + 2 dashes
+        max_length=11,  # TOTP is 6 digits; recovery codes are 9 chars + 2 dashes
         description="6-digit TOTP code or XXX-XXX-XXX recovery code.",
     )
 

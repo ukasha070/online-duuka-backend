@@ -9,12 +9,14 @@ from slowapi.errors import RateLimitExceeded
 
 
 from apps.auth.router import auth_router
+from core._orjson import CustomORJSONResponse
 from core.config import settings
 
 app = FastAPI(
     title="Online Duuka API",
     description="API for Online Duuka, an e-commerce platform.",
     version="1.0.0",
+    default_response_class=CustomORJSONResponse,
 )
 
 app.add_middleware(

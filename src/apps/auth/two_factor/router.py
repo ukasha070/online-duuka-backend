@@ -6,13 +6,13 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 
-from apps.auth.user.service_user import get_user_by_id
+from apps.auth.user.service import get_user_by_id
 from apps.auth.validators import validate_user
 from core.db import get_db
 from apps.auth import tasks
 from apps.auth.user.models import User
 from apps.auth.utils import get_client_context
-from apps.auth.schema import CreateSessionPayload
+from apps.auth.schemas import CreateSessionPayload
 from apps.auth.dependencies import get_current_user
 from apps.auth.session.schemas import LoginResponse
 from apps.auth.authentication import create_login_session_response
@@ -120,7 +120,7 @@ async def verify_two_factor_login(
     response = await create_login_session_response(
         db=db,
         user_id=user_id,
-        session_payload=session_payload,
+        payload=session_payload,
     )
 
     return LoginResponse.model_validate(response)
@@ -310,6 +310,9 @@ async def disable_authenticator_app(
         )
 
     client = get_client_context(request)
+
+    # TODO
+    # send 2factor is disabled
     tasks.send_two_factor_security_email.delay(  # type: ignore
         to_email=current_user.email,
         full_name=current_user.full_name,

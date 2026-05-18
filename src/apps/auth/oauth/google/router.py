@@ -4,12 +4,12 @@ from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from apps.auth.utils import get_client_context
-from apps.auth.user import service_user as user_service
+from apps.auth.user import service as user_service
 from apps.auth.session.schemas import LoginResponse
 from apps.auth.authentication import create_login_session_response
 
 from apps.auth._jwt import TokenType, create_google_token, validate_token
-from apps.auth.schema import CreateSessionPayload
+from apps.auth.schemas import CreateSessionPayload, DeviceInfoPayload
 from apps.auth.validators import validate_user
 from core.db import get_db
 
@@ -106,16 +106,17 @@ async def google_oauth_callback(
     )
 
     # The ID token contains the Google user's identity information.
-    jwt_token = token_json.id_token
 
-    if not jwt_token:
+    if not token_json.id_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Google ID token is missing from the token response.",
         )
 
-    # Verify Google's ID token and extract the Google user info.
-    user_info = verify_google_id_token(jwt_token)
+    # Verify Google's ID token and ger user info and extract the Google user info.
+    user_info = await verify_google_id_token(
+        token_json.id_token, token_json.access_token
+    )
 
     email = user_info.email
     google_sub = user_info.sub
@@ -142,6 +143,7 @@ async def google_oauth_callback(
             email=email,
             full_name=user_info.name or email,
             google_sub=google_sub,
+            image_url=user_info.picture,
         )
     except ValueError as exc:
         return {"detail": str(exc)}
@@ -185,9 +187,7 @@ async def google_oauth_callback(
     return {"google_token": google_token}
 
 
-@router.post(
-    "/session",
-)
+@router.post("/session", response_model=LoginResponse)
 async def create_google_session(
     payload: GoogleSessionExchangePayload,
     db: AsyncSession = Depends(get_db),
@@ -202,7 +202,6 @@ async def create_google_session(
         )
 
         # Rebuild the session payload from the token claims.
-        session_payload = CreateSessionPayload.model_validate(token_payload)
 
     except Exception as exc:
         raise HTTPException(
@@ -214,24 +213,10 @@ async def create_google_session(
     user_id = token_payload["sub"]
 
     # Create the real login session and issue app access/refresh tokens.
+    session_payload = CreateSessionPayload.model_validate(token_payload)
+
     response = await create_login_session_response(
-        db=db,
-        user_id=user_id,
-        session_payload=session_payload,
+        db=db, user_id=user_id, payload=session_payload
     )
 
-    return LoginResponse.model_validate(response)
-
-
-# http://localhost:3000/auth/google/login/callback?
-# state=oS3Y3kkKM3fkTleK6ZnwjgcoM_3KsFR1zIb15TJP0ak&iss=https%3A%2F%2Faccounts.google.com
-# &
-# code=4%2F0AeoWuM8H5Mtm41HHxFc9cf97_5JFKasUJUvKBsOLkOFCUwmfCzaUJlXAwHEUVCkjJoMA3g
-# &scope=email+profile+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.email+openid+https%3A%2F%2Fwww.googleapis.com%2Fauth%2Fuserinfo.profile&authuser=0&prompt=none
-
-
-# Response body
-# Download
-# {
-#   "google_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJ1c2VyXzBiTUFud2xBIiwic2Vzc2lvbl9pZCI6IiIsInR5cGUiOiJnb29nbGUtdG9rZW4iLCJqdGkiOiIxNGE0YjE5OC03YTUwLTRlZDgtYjRlMS1lYTRhOGM0MTA2NjkiLCJpYXQiOjE3Nzg5NTM4MzIsIm5iZiI6MTc3ODk1MzgzMiwiZXhwIjoxNzc5MTI2NjMyLCJpc3MiOiJPbmxpbmUgRHV1a2EiLCJhdWQiOiJ5b3VyLWFwcC1jbGllbnQiLCJkZXZpY2VfaWQiOm51bGwsImRldmljZV9uYW1lIjoiUGl4ZWwgOCIsImRldmljZV90eXBlIjoibW9iaWxlIiwib3NfbmFtZSI6IkFuZHJvaWQiLCJicm93c2VyX25hbWUiOm51bGx9.nQ3Ijh-UsEG9jvmivJwHF9RGIGJpR7Smuh-0YvQLn_o"
-# }
+    return response

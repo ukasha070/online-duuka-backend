@@ -64,13 +64,17 @@ class User(SQLModel, table=True):
         sa_column=Column("google_sub", String(255), nullable=True),
     )
 
-    profile: Optional["UserProfile"] = Relationship(
-        back_populates="user",
-        sa_relationship_kwargs={
-            "uselist": False,
-            "cascade": "all, delete-orphan",
-            "single_parent": True,
-        },
+    # Example: "uploads/profile_images/user_123.png"
+    image_path: Optional[str] = Field(
+        default=None,
+        sa_column=Column(String(512), nullable=True),
+    )
+
+    # For Google OAuth users
+    # Example: "https://lh3.googleusercontent.com/..."
+    image_url: Optional[HttpUrl] = Field(
+        default=None,
+        sa_column=Column(String(2048), nullable=True),
     )
 
     is_active: bool = Field(default=True)
@@ -145,44 +149,3 @@ class User(SQLModel, table=True):
 
     def is_oauth_user(self) -> bool:
         return self.password is None and self.auth_type != AuthType.EMAIL
-
-
-class UserProfile(SQLModel, table=True):
-    __tablename__ = "user_profiles"  # type: ignore
-
-    user_id: str = Field(
-        sa_column=Column(
-            String,
-            ForeignKey("users._id", ondelete="CASCADE"),
-            primary_key=True,
-            nullable=False,
-        )
-    )
-
-    # For users who upload profile images locally
-    # Example: "uploads/profile_images/user_123.png"
-    image_path: Optional[str] = Field(
-        default=None,
-        sa_column=Column(String(512), nullable=True),
-    )
-
-    # For Google OAuth users
-    # Example: "https://lh3.googleusercontent.com/..."
-    image_url: Optional[HttpUrl] = Field(
-        default=None,
-        sa_column=Column(String(2048), nullable=True),
-    )
-
-    created_at: datetime = Field(
-        default_factory=utc_now,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
-    )
-
-    updated_at: datetime = Field(
-        default_factory=utc_now,
-        sa_column=Column(DateTime(timezone=True), nullable=False),
-    )
-
-    user: Optional["User"] = Relationship(
-        back_populates="profile",
-    )

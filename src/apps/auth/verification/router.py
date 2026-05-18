@@ -4,7 +4,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from core.db import get_db
 
 from apps.auth.user.models import AuthType
-from apps.auth.user import service_user as user_service
+from apps.auth.user import service as user_service
 from apps.auth import tasks as _tasks
 
 from . import services as verification_service

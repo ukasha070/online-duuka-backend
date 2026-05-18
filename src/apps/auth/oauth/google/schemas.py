@@ -3,7 +3,7 @@ from typing_extensions import Annotated
 
 from pydantic import BaseModel, EmailStr, Field, HttpUrl, PositiveInt
 
-from apps.auth.schema import DeviceInfoPayload
+from apps.auth.schemas import DeviceInfoPayload
 
 # -----------------------------
 # Shared field types
@@ -44,7 +44,7 @@ class GoogleUserInfoResponse(BaseModel):
     email: EmailStr
     email_verified: bool
     name: str | None = None
-    picture: HttpUrl | None = None
+    picture: HttpUrl
     given_name: str | None = None
     family_name: str | None = None
 

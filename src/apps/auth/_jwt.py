@@ -14,7 +14,7 @@ from pydantic import BaseModel
 
 from core.utils import utc_now
 from core.config import settings
-from apps.auth.schema import CreateSessionPayload
+from apps.auth.schemas import CreateSessionPayload
 
 
 class TokenType(StrEnum):
@@ -149,40 +149,6 @@ def decode_refresh_token(token: str) -> dict[str, Any]:
 
     if payload.get("type") != "refresh":
         raise ValueError("Invalid refresh token")
-
-    return payload
-
-
-def create_two_factor_token(
-    *, user_id: str, session_payload: CreateSessionPayload
-) -> str:
-    now = utc_now()
-    expires_at = now + timedelta(minutes=settings.TWO_FACTOR_CHALLENGE_EXPIRE_MINUTES)
-
-    payload = {
-        "sub": user_id,
-        "type": "two_factor",
-        "jti": str(uuid4()),
-        "iat": now,
-        "nbf": now,
-        "exp": expires_at,
-        "iss": settings.JWT_ISSUER,
-        "aud": settings.JWT_AUDIENCE,
-        **(session_payload.model_dump() or {}),
-    }
-
-    return jwt.encode(
-        payload,
-        settings.JWT_SECRET_KEY,
-        algorithm=settings.JWT_ALGORITHM,
-    )
-
-
-def decode_two_factor_token(token: str) -> dict[str, Any]:
-    payload = decode_jwt_token(token)
-
-    if payload.get("type") != "two_factor":
-        raise ValueError("Invalid two-factor token")
 
     return payload
 

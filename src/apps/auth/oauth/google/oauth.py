@@ -72,10 +72,9 @@ async def consume_google_oauth_state(state: GoogleState) -> GoogleOAuthCachedSta
 
     pipeline = redis_client.pipeline(transaction=True)
     pipeline.get(cache_key)
-    # TODO: uncomment before production — prevents state replay attacks
-    # pipeline.delete(cache_key)
+    pipeline.delete(cache_key)
 
-    (cached_value,) = await pipeline.execute()
+    cached_value, _ = await pipeline.execute()
 
     if not cached_value:
         raise HTTPException(
@@ -141,9 +140,6 @@ async def exchange_google_code_for_tokens(
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
-        print("STATUS:", response.status_code)
-        print("RESPONSE:", response.json())
-
     if response.status_code >= 400:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -153,11 +149,13 @@ async def exchange_google_code_for_tokens(
     return GoogleTokenResponse.model_validate(response.json())
 
 
-def verify_google_id_token(jwt_token: str) -> GoogleUserInfoResponse:
-    if not jwt_token:
+async def verify_google_id_token(
+    jwt_token: str, access_token: str
+) -> GoogleUserInfoResponse:
+    if not jwt_token or not access_token:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Google ID token is missing.",
+            detail="Google ID and token are missing.",
         )
 
     google_user_info = id_token.verify_oauth2_token(
@@ -175,7 +173,21 @@ def verify_google_id_token(jwt_token: str) -> GoogleUserInfoResponse:
             detail="Invalid Google token issuer.",
         )
 
-    return GoogleUserInfoResponse.model_validate(google_user_info)
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            "https://www.googleapis.com/oauth2/v3/userinfo",
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+        if response.status_code != 200:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Failed to fetch Google user info.",
+            )
+
+        user_info = response.json()
+
+    return GoogleUserInfoResponse.model_validate(user_info)
 
 
 async def verify_google_oauth_callback(

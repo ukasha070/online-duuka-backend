@@ -5,7 +5,7 @@ from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from apps.auth.security import generate_token
-from apps.auth.user import service_user as user_service, service_pro as profile_service
+from apps.auth.user import service as user_service
 
 from .models import EmailVerificationToken, User
 

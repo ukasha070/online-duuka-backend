@@ -1,11 +1,32 @@
-from fastapi import APIRouter, Depends, HTTPException, Request, status
+from typing import Annotated
+
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    UploadFile,
+    status,
+)
 from sqlmodel.ext.asyncio.session import AsyncSession
 
 from apps.auth.authentication import create_login_session_response
-from apps.auth.schema import CreateSessionPayload
-from apps.auth.session.schemas import LoginResponse
+from apps.auth.schemas import CreateSessionPayload
+from apps.auth.session.schemas import (
+    MePayload,
+    MeResponse,
+    SigninResponse,
+    TwoFactorChallengeResponse,
+)
 from apps.auth.validators import validate_user
-from apps.auth._jwt import create_two_factor_token
+from apps.auth.two_factor.tokens import create_two_factor_token
+from core.image.service import (
+    ProcessConfig,
+    process_upload,
+)
+from core.storage import file_storage
 from core.db import get_db
 from apps.auth.utils import get_client_context
 
@@ -13,18 +34,17 @@ from apps.auth.dependencies import get_current_user
 
 from apps.auth.verification import services as verification_service
 from apps.auth.two_factor.service import authenticator_app_service
-from apps.auth.user.models import User
+from apps.auth.user.models import User, utc_now
 from .schemas import (
-    ChangePasswordPayLoad,
+    ChangePasswordPayload,
     SignOutPayload,
     SigninPayload,
     SignupPayload,
-    UserProfileUpdatePayload,
 )
 
 from apps.auth import tasks
 from apps.auth.session import services as session_service
-from apps.auth.user import service_user as user_service, service_pro as profile_service
+from apps.auth.user import service as user_service
 
 router = APIRouter(prefix="", tags=["auth"])
 
@@ -40,9 +60,12 @@ async def sign_up_user(
     normalized_email = payload.email.lower().strip()
     normalized_full_name = payload.full_name.strip()
 
-    exiting_user = user_service.get_user_by_email(db=db, email=normalized_email)
+    existing_user = await user_service.get_user_by_email(
+        db=db,
+        email=normalized_email,
+    )
 
-    if exiting_user:
+    if existing_user:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail="Email is already registered",
@@ -71,7 +94,7 @@ async def sign_up_user(
     }
 
 
-@router.post("/signin", response_model=LoginResponse)
+@router.post("/signin", response_model=SigninResponse)
 async def sign_in_user(
     payload: SigninPayload,
     request: Request,
@@ -82,33 +105,40 @@ async def sign_in_user(
         email=payload.email,
         password=payload.password,
     )
-    validated_user = validate_user(user)
+
+    validated_user = validate_user(user, message="Invalid Login Credentials.")
     client = get_client_context(request)
 
     # ── two-factor gating ──────────────────────────────────────────────────
     if await authenticator_app_service.is_enabled(db=db, user_id=validated_user.id):
-        session_payload = CreateSessionPayload.model_validate(
-            {
-                **client.model_dump(),
-                **payload.model_dump(),
-                "remember_me": payload.remember_me,
-            }
-        )
+
         token = create_two_factor_token(
-            user_id=validated_user.id, session_payload=session_payload
+            client=client,
+            user_id=validated_user.id,
+            device=payload,
+            remember_me=payload.remember_me,
         )
-        return {
-            "two_factor_token": token,
-        }
+
+        return TwoFactorChallengeResponse(
+            two_factor_token=token, two_factor_required=True
+        )
 
     # ── normal login ───────────────────────────────────────────────────────
-    session_payload = CreateSessionPayload.model_validate(
-        {**client.model_dump(), **payload.model_dump()}
+    session_payload = CreateSessionPayload(
+        # device fields from payload
+        device_id=payload.device_id,
+        device_name=payload.device_name,
+        device_type=payload.device_type,
+        os_name=payload.os_name,
+        browser_name=payload.browser_name,
+        remember_me=payload.remember_me,
+        # client fields from request
+        ip_address=client.ip_address,
+        user_agent=client.user_agent,
     )
+
     response = await create_login_session_response(
-        db=db,
-        user_id=validated_user.id,
-        session_payload=session_payload,
+        db=db, user_id=validated_user.id, payload=session_payload
     )
 
     return response
@@ -129,13 +159,23 @@ async def signout_user(
 
 @router.post("/change-password")
 async def change_password(
-    payload: ChangePasswordPayLoad,
+    payload: ChangePasswordPayload,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     user = current_user
 
-    await user_service.change_password(db, user.id, payload.confirm_password)
+    if not user_service.verify_password(payload.current_password, user.password):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Current password is incorrect",
+        )
+
+    await user_service.change_password(
+        db=db,
+        user_id=user.id,
+        new_password=payload.new_password,
+    )
 
     await session_service.delete_all_user_sessions(user_id=user.id, db=db)
 
@@ -145,21 +185,59 @@ async def change_password(
     return {"detail": "Password changed successfully"}
 
 
-@router.get("/me")
-async def get_me(current_user=Depends(get_current_user)):
-    return current_user
+@router.get("/me", response_model=MeResponse)
+async def get_me(
+    current_user: User = Depends(get_current_user),
+) -> MeResponse:
+    return user_service.build_me_response(current_user)
 
 
-@router.patch("/me/image")
-async def update_my_profile_image(
-    payload: UserProfileUpdatePayload,
+@router.patch("/me", response_model=MeResponse)
+async def update_user(
+    payload: MePayload,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
-):
-    profile = await profile_service.update_profile_image_path(
-        session=session,
-        user_id=current_user.id,
-        image_path=payload.image_path,
+) -> MeResponse:
+    if payload.full_name is not None:
+        current_user.full_name = payload.full_name
+        current_user.updated_at = utc_now()
+
+    await session.commit()
+    await session.refresh(current_user)
+
+    return user_service.build_me_response(current_user)
+
+
+@router.patch("/me/avatar", response_model=MeResponse)
+async def update_user_avatar(
+    image: Annotated[UploadFile, File()],
+    session: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MeResponse:
+    old_path = current_user.image_path
+
+    data = await image.read()
+
+    config = ProcessConfig(
+        preset="avatar",
+        height=100,
+        width=100,
     )
 
-    return {"image": profile_service.get_display_image(profile)}
+    saved_path = user_service.update_user_avatar(
+        config=config,
+        content_type=image.content_type,
+        data=data,
+        user_id=current_user.id,
+    )
+
+    current_user.image_path = saved_path
+    current_user.updated_at = utc_now()
+
+    await session.commit()
+    await session.refresh(current_user)
+
+    if old_path:
+        file_storage.delete(old_path)
+
+    return user_service.build_me_response(current_user)

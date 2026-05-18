@@ -11,7 +11,7 @@ from core.db import get_db
 from apps.auth.user.models import User
 from apps.auth.session.models import UserSession
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/auth/signin")
+oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/signin")
 
 
 async def get_current_user(

@@ -4,7 +4,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 from apps.auth.validators import validate_user
 from core.db import get_db
 
-from apps.auth.user import service_user as user_service
+from apps.auth.user import service as user_service
 from apps.auth.session import services as session_service
 
 from . import tasks
@@ -50,8 +50,8 @@ async def request_password_reset(
 
 @router.get("/confirm/token/{token}")
 async def confirm_password_reset_token(token: str, db: AsyncSession = Depends(get_db)):
-    reset_token = await service.get_valid_token(token=token, db=db)
-    return {"detail": "Password reset token is valid", "reset_token": reset_token}
+    await service.get_valid_token(token=token, db=db)
+    return {"detail": "Password reset token is valid"}
 
 
 @router.post("/confirm/")

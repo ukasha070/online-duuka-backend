@@ -16,9 +16,10 @@ from uuid import uuid4
 import jwt
 from pydantic import BaseModel
 
+from apps.auth._jwt import TokenType
 from core.config import settings
 from core.utils import utc_now
-from apps.auth.schema import DeviceInfoPayload
+from apps.auth.schemas import DeviceInfoPayload
 from apps.auth.utils import ClientContext
 
 # ── keep your existing TokenType enum but make sure twofactor = "two-factor" ──
@@ -71,7 +72,7 @@ def create_two_factor_token(
     payload: dict[str, Any] = {
         # standard claims
         "sub": user_id,
-        "type": "two-factor",  # matches TokenType.twofactor
+        "type": TokenType.twofactor,  # matches TokenType.twofactor
         "jti": str(uuid4()),
         "iat": now,
         "nbf": now,
@@ -127,7 +128,7 @@ def decode_two_factor_token(token: str) -> TwoFactorTokenPayload:
     except jwt.InvalidTokenError:
         raise ValueError("Invalid two-factor token.")
 
-    if raw.get("type") != "two-factor":
+    if raw.get("type") != TokenType.twofactor:
         raise ValueError("Invalid two-factor token.")
 
     return TwoFactorTokenPayload(

@@ -6,15 +6,8 @@ from pydantic import BaseModel, EmailStr, Field, field_validator, model_validato
 from pydantic_core.core_schema import FieldValidationInfo
 
 from apps.auth.validators import validate_password_strength
-from apps.auth.schema import DeviceInfoPayload
+from apps.auth.schemas import DeviceInfoPayload
 from apps.auth._jwt import validate_token, TokenType
-
-from apps.auth.user import service_user as user_service
-from core.db import get_db
-
-
-class UserProfileUpdatePayload(BaseModel):
-    image_path: Optional[str] = None
 
 
 class SignupPayload(BaseModel):
@@ -68,11 +61,12 @@ class TwoFactorSigninPayload(BaseModel):
         return self
 
 
-class ChangePasswordPayLoad(BaseModel):
-    password: str = Field(min_length=8, max_length=128)
-    confirm_password: str = Field(min_length=8, max_length=128)
+class ChangePasswordPayload(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+    new_confirm_password: str = Field(min_length=8, max_length=128)
 
-    @field_validator("password")
+    @field_validator("new_password")
     @classmethod
     def validate_password(cls, value: str) -> str:
         """
@@ -84,9 +78,9 @@ class ChangePasswordPayLoad(BaseModel):
 
         return validate_password_strength(value)
 
-    @field_validator("confirm_password")
+    @field_validator("new_confirm_password")
     @classmethod
     def validate_passwords_match(cls, v: str, info: FieldValidationInfo) -> str:
-        if "password" in info.data and v != info.data["password"]:
+        if "new_password" in info.data and v != info.data["new_password"]:
             raise ValueError("Passwords didn't match.")
         return v
