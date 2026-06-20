@@ -1,64 +1,65 @@
 # Online Duuka Backend
 
-FastAPI backend for Online Duuka, structured around the project stack.
+FastAPI backend for Online Duuka.
 
-## Project layout
+## Current branch layout
+
+This branch is moving the backend from the old `src/` layout toward the requested project-stack layout:
 
 ```text
-app/
-  main.py
-  config.py
-  database.py
-  core/
-  middleware/
-  models/
-  routers/
-  schemas/
-  services/
-  tasks/
-alembic/
-  env.py
-  versions/
-media/
-  avatars/
-  shops/
-  products/
+.
+├── alembic.ini
+├── alembic/
+├── app/
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   ├── core/
+│   ├── models/
+│   ├── routers/
+│   ├── schemas/
+│   └── services/
+├── media/
+└── requirements.txt
 ```
 
-Models are grouped by domain while still using SQLModel:
+## Auth migration status
 
-- `app/models/user.py` — user, session, 2FA, password reset and verification models
-- `app/models/agent.py` — agent and commission models
-- `app/models/shop.py` — shop and location models
-- `app/models/product.py` — product models
-- `app/models/billing.py` — subscription and billing models
-- `app/models/booster.py` — booster pack and active booster models
-- `app/models/chat.py` — conversation, participants and messages
+The auth module has been started in the new `app/` layout:
 
-## Run locally
+- `app/routers/auth.py` contains the merged auth endpoints for registration, login, refresh, logout, session management, password change, password reset, and 2FA.
+- `app/routers/users.py` contains user profile routes such as `GET /api/users/me` and `PATCH /api/users/me`.
+- `app/services/auth_service.py` contains the auth business logic.
+- `app/schemas/auth.py` contains the auth request and response schemas.
+- `app/core/security.py` contains password hashing and JWT helpers.
+- `app/core/dependencies.py` contains the authenticated-user and admin dependencies.
+
+Google OAuth routes are kept in `app/routers/auth.py` as route-contract placeholders and intentionally return `501` until the Google OAuth service is migrated.
+
+The old `src/` tree has not been deleted yet. It should be removed only after each old feature module has been migrated and verified.
+
+## Local development
+
+Create your environment file:
+
+```bash
+cp .env.example .env
+```
+
+Install dependencies:
+
+```bash
+pip install -r requirements.txt
+```
+
+Run the app:
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
-## Database migrations
-
-Alembic now uses the root `alembic/` folder and imports models from `app.models`.
-
-Run migrations:
+Run Alembic migrations:
 
 ```bash
-uv run alembic upgrade head
-```
-
-Create a new migration after changing SQLModel models:
-
-```bash
-uv run alembic revision --autogenerate -m "describe your change"
-```
-
-Review generated migrations before applying them:
-
-```bash
-uv run alembic upgrade head --sql
+alembic upgrade head
 ```
