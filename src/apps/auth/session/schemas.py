@@ -89,3 +89,4 @@ class MePayload(BaseModel):
     """Both fields are optional so the user can update either or both."""
 
     full_name: str | None = None
+    turnstile_token:str = Field(min_length=5)

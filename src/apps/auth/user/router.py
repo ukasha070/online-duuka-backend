@@ -28,6 +28,8 @@ from core.image.service import (
 )
 from core.storage import file_storage
 from core.db import get_db
+from core import turnstile
+
 from apps.auth.utils import get_client_context
 
 from apps.auth.dependencies import get_current_user
@@ -55,8 +57,17 @@ router = APIRouter(prefix="", tags=["auth"])
 )
 async def sign_up_user(
     payload: SignupPayload,
+    request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    client = get_client_context(request)
+
+    await turnstile.validate_turnstile_token(
+        turnstile_token=payload.turnstile_token,
+        expected_action="signup",
+        ip_address=client.ip_address
+    )
+
     normalized_email = payload.email.lower().strip()
     normalized_full_name = payload.full_name.strip()
 
@@ -100,6 +111,15 @@ async def sign_in_user(
     request: Request,
     db: AsyncSession = Depends(get_db),
 ):
+    
+    client = get_client_context(request)
+
+    await turnstile.validate_turnstile_token(
+        turnstile_token=payload.turnstile_token,
+        expected_action="signin",
+        ip_address=client.ip_address
+    )
+
     user = await user_service.authenticate_email_user(
         db=db,
         email=payload.email,
@@ -107,6 +127,7 @@ async def sign_in_user(
     )
 
     validated_user = validate_user(user, message="Invalid Login Credentials.")
+    
     client = get_client_context(request)
 
     # ── two-factor gating ──────────────────────────────────────────────────
@@ -160,12 +181,19 @@ async def signout_user(
 @router.post("/change-password")
 async def change_password(
     payload: ChangePasswordPayload,
+    request:Request,
     current_user=Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    user = current_user
+    client = get_client_context(request)
 
-    if not user_service.verify_password(payload.current_password, user.password):
+    await turnstile.validate_turnstile_token(
+        turnstile_token=payload.turnstile_token,
+        expected_action="change_password",
+        ip_address=client.ip_address
+    )
+
+    if not user_service.verify_password(payload.current_password, current_user.password):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Current password is incorrect",
@@ -173,14 +201,14 @@ async def change_password(
 
     await user_service.change_password(
         db=db,
-        user_id=user.id,
+        user_id=current_user.id,
         new_password=payload.new_password,
     )
 
-    await session_service.delete_all_user_sessions(user_id=user.id, db=db)
+    await session_service.delete_all_user_sessions(user_id=current_user.id, db=db)
 
     tasks.send_password_changed_email.delay(  # type: ignore
-        to_email=user.email, full_name=user.full_name
+        to_email=current_user.email, full_name=current_user.full_name
     )
     return {"detail": "Password changed successfully"}
 
@@ -195,9 +223,18 @@ async def get_me(
 @router.patch("/me", response_model=MeResponse)
 async def update_user(
     payload: MePayload,
+    request:Request,
     session: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> MeResponse:
+    client = get_client_context(request)
+
+    await turnstile.validate_turnstile_token(
+        turnstile_token=payload.turnstile_token,
+        expected_action="update_me",
+        ip_address=client.ip_address
+    )
+
     if payload.full_name is not None:
         current_user.full_name = payload.full_name
         current_user.updated_at = utc_now()

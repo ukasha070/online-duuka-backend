@@ -17,6 +17,7 @@ from apps.auth.dependencies import get_current_user
 from apps.auth.session.schemas import LoginResponse
 from apps.auth.authentication import create_login_session_response
 from apps.auth.two_factor.tokens import decode_two_factor_token
+from core.utils import generate_random_otp
 
 from .schemas import (
     AuthenticatorConfirmRequest,
@@ -26,6 +27,7 @@ from .schemas import (
     AuthenticatorVerifyRequest,
     AuthenticatorStatusResponse,
     RecoveryCodesResponse,
+    SendOtpCodePayload,
     TwoFactorVerifyPayload,
 )
 from .service import (
@@ -33,6 +35,7 @@ from .service import (
     authenticator_app_service,
     build_provisioning_uri,
 )
+from core.cache import redis_client
 from .qr import build_qr_code_data_url
 
 router = APIRouter(prefix="", tags=["Two-factor authentication"])
@@ -74,6 +77,15 @@ async def verify_two_factor_login(
     user = await get_user_by_id(db=db, user_id=user_id)
 
     validated_user = validate_user(user, validate_auth_type=False)
+
+    if validated_user.lockdown_left_seconds() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "seconds": validated_user.lockdown_left_seconds(),
+                "message": f"Still in lockdown."
+            }
+        )
 
     # ── 3. verify the TOTP / recovery code ────────────────────────────────
     verified_method = (
@@ -322,3 +334,53 @@ async def disable_authenticator_app(
     )
 
     return AuthenticatorDisabledResponse(is_enabled=False)
+
+
+
+@router.post("/send_two_factor_otp",)
+async def send_two_factor_otp(
+    request: Request,
+    payload: SendOtpCodePayload,
+    db: AsyncSession = Depends(get_db),
+):
+    
+    try:
+        token_data = decode_two_factor_token(payload.two_factor_token)
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(exc),
+        )
+
+    user_id = token_data.sub
+    otp_code = generate_random_otp()
+
+
+    # ── 2. fetch the user (must still be active) ───────────────────────────
+    user = await get_user_by_id(db=db, user_id=user_id)
+
+    validated_user = validate_user(user, validate_auth_type=False)
+
+
+    cache_key = f"cache:otp:user_id:{user_id}"
+
+
+    await redis_client.setex(
+        cache_key,
+        60,
+        otp_code,
+    )
+
+    client = get_client_context(request)
+
+    tasks.send_two_factor_otp_code_email( # type: ignore
+        to_email=validated_user.email,
+        otp_code=otp_code,
+        action="otp_email_sent",
+        ip_address=client.ip_address,
+        user_agent=client.user_agent,
+    )
+
+    return {
+        "detail": "Otp has been sent to you email"
+    }

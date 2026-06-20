@@ -131,6 +131,18 @@ class User(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True), nullable=False),
     )
 
+    failed_login_attempts: int = Field(default=0, nullable=False)
+
+    login_locked_until: datetime = Field(
+        default=utils.utc_now(),
+        sa_column=Column(DateTime(timezone=True), nullable=False),
+    )
+
+    last_failed_login_at: Optional[datetime] = Field(
+        default=None,
+        sa_column=Column(DateTime(timezone=True), nullable=True)
+    )
+
     def is_google_user(self) -> bool:
         return self.auth_type == AuthType.GOOGLE
 
@@ -143,9 +155,19 @@ class User(SQLModel, table=True):
     def can_login(self) -> bool:
         return (
             self.is_active
-            and (self.can_login_with_password() or self.is_google_user())
             and self.is_verified
         )
+    
+    def lockdown_left_seconds(self) -> int:
+        if self.login_locked_until is None:
+            return 0
+
+        now = utils.utc_now()
+
+        if self.login_locked_until <= now:
+            return 0
+
+        return int((self.login_locked_until - now).total_seconds())
 
     def is_oauth_user(self) -> bool:
         return self.password is None and self.auth_type != AuthType.EMAIL

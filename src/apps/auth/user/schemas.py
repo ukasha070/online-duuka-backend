@@ -15,6 +15,7 @@ class SignupPayload(BaseModel):
     full_name: str = Field(min_length=4, max_length=100)
     password: str = Field(min_length=8, max_length=128)
     confirm_password: str = Field(min_length=8, max_length=128)
+    turnstile_token:str = Field(min_length=5)
 
     @field_validator("password")
     @classmethod
@@ -40,6 +41,7 @@ class SigninPayload(DeviceInfoPayload):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     remember_me: bool = False
+    turnstile_token:str = Field(min_length=5)
 
 
 class SignOutPayload(BaseModel):
@@ -65,6 +67,7 @@ class ChangePasswordPayload(BaseModel):
     current_password: str
     new_password: str = Field(min_length=8, max_length=128)
     new_confirm_password: str = Field(min_length=8, max_length=128)
+    turnstile_token:str = Field(min_length=5)
 
     @field_validator("new_password")
     @classmethod

@@ -34,6 +34,11 @@ TWO_FACTOR_ACTIONS = {
         "heading": "Recovery code used",
         "description": "A recovery code was used to complete two-factor sign-in to your account.",
     },
+    "otp_email_sent": {
+            "subject": "Two-factor Authentication Code",
+            "heading": "Two-factor Authentication Code",
+            "description": "Use the code to verify inorder to login.",
+    }
 }
 
 
@@ -242,6 +247,45 @@ def send_two_factor_security_email(
         "description": action_details["description"],
         "ip_address": ip_address or "Unknown",
         "user_agent": user_agent or "Unknown device",
+        "occurred_at": occurred_at or datetime.now(timezone.utc).isoformat(),
+    }
+
+    send_templated_email_with_retry(
+        self,
+        to_email=to_email,
+        subject=action_details["subject"],
+        template_base="emails/two_factor_security",
+        context=context,
+    )
+
+
+
+@email_task("emails.send_two_factor_otp_code_email")
+def send_two_factor_otp_code_email(
+    self: Task,
+    to_email: str,
+    action: str,
+    otp_code: str,
+    ip_address: Optional[str] = None,
+    user_agent: Optional[str] = None,
+    occurred_at: Optional[str] = None,
+) -> None:
+    action_details = TWO_FACTOR_ACTIONS.get(
+        action,
+        {
+            "subject": "Two-factor Authentication Code",
+            "heading": "Two-factor Authentication Code",
+            "description": "Use the code to verify inorder to login.",
+        },
+    )
+
+    context = {
+        "app_name": settings.APP_NAME,
+        "heading": action_details["heading"],
+        "description": action_details["description"],
+        "ip_address": ip_address or "Unknown",
+        "user_agent": user_agent or "Unknown device",
+        "otp_code": otp_code,
         "occurred_at": occurred_at or datetime.now(timezone.utc).isoformat(),
     }
 

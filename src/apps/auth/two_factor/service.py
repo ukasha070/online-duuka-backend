@@ -11,6 +11,7 @@ from sqlmodel.ext.asyncio.session import AsyncSession
 
 from core.utils import utc_now
 from core.config import settings
+from core.cache import redis_client
 from apps.auth.user.models import User
 
 from .models import UserAuthenticatorApp, UserTwoFactorRecoveryCode
@@ -320,15 +321,17 @@ class AuthenticatorAppService:
         db: AsyncSession,
         user_id: str,
         code: str,
-    ) -> Optional[Literal["totp", "recovery_code"]]:
+    ) -> Optional[Literal["totp", "recovery_code", "otp_code"]]:
         """
         Verify a login code.
 
         The submitted code is checked in this order:
-            1. TOTP code from authenticator app
-            2. Recovery code
+            1. OTP code verifications
+            2. TOTP code from authenticator app
+            3. Recovery code
 
         Returns:
+            "otp_code"
             "totp"          — valid authenticator-app code
             "recovery_code" — valid unused recovery code, now marked as used
             None            — invalid code
@@ -337,6 +340,18 @@ class AuthenticatorAppService:
 
         if not authenticator or not authenticator.is_enabled:
             return None
+        
+        cache_key = f"cache:otp:user_id:{user_id}"
+
+        pipeline = redis_client.pipeline(transaction=True)
+        pipeline.get(cache_key)
+        pipeline.delete(cache_key)
+
+        otp_code, _ = await pipeline.execute()
+         
+        #  verify the sent otp
+        if otp_code and otp_code == code:
+            return "otp_code"
 
         # First try the code as a normal TOTP code.
         if self._verify_totp(secret=authenticator.secret, code=code):
@@ -565,7 +580,12 @@ class AuthenticatorAppService:
             - next time window
         """
         totp = pyotp.TOTP(secret)
-        return totp.verify(code, valid_window=1)
+        return bool(
+        totp.verify(
+            code.strip(),
+            valid_window=0,
+        )
+    )
 
 
 authenticator_app_service = AuthenticatorAppService()

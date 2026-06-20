@@ -1,7 +1,7 @@
 # app/schemas/two_factor.py
 
 from typing import Optional
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, EmailStr
 
 
 class AuthenticatorSetupResponse(BaseModel):
@@ -18,6 +18,10 @@ class AuthenticatorConfirmRequest(BaseModel):
 
 class AuthenticatorVerifyRequest(BaseModel):
     code: str = Field(min_length=6, max_length=12)
+
+
+class SendOtpCodePayload(BaseModel):
+    two_factor_token:str = Field(min_length=6, max_length=12)
 
 
 class RecoveryCodesResponse(BaseModel):

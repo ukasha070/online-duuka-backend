@@ -3,7 +3,7 @@ from fastapi import HTTPException, status
 
 from apps.auth.user.models import AuthType, User
 
-_message = "If an account with that email exists, a password reset email has been sent."
+_message = "Error with your account."
 
 
 def validate_user(

@@ -1,6 +1,7 @@
 from typing import Optional, Sequence, Any
+from datetime import datetime, timedelta
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Response, status
 from pydantic import HttpUrl
 from sqlmodel import select
 from sqlmodel.ext.asyncio.session import AsyncSession
@@ -14,6 +15,7 @@ from core.image.service import (
     process_upload,
 )
 from core.storage import file_storage
+from core import utils
 
 
 async def get_user_by_id(db: AsyncSession, user_id: str) -> Optional[User]:
@@ -244,8 +246,18 @@ async def authenticate_email_user(
 
     if not user.password:
         return None
+        
+    if user.lockdown_left_seconds() > 0:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "seconds": user.lockdown_left_seconds(),
+                "message": f"Still in lockdown."
+            }
+        )
 
     if not verify_password(password, user.password):
+        update_failed_login_attempts(user=user)
         return None
 
     if not user.is_active:
@@ -260,6 +272,11 @@ async def authenticate_email_user(
             detail=f"Please Verify account to login.",
         )
 
+
+    if user.failed_login_attempts > 1:
+        user.failed_login_attempts = 0
+        user.login_locked_until = utils.utc_now()
+        
     return user
 
 
@@ -301,3 +318,12 @@ def update_user_avatar(
     saved_path = file_storage.save(result, user_id)
 
     return saved_path
+
+
+def update_failed_login_attempts(user:User):
+    user.failed_login_attempts += 1
+    user.last_failed_login_at = utils.utc_now()
+
+    lockdown_minutes = utils.get_lockout_duration(user.failed_login_attempts)
+
+    user.login_locked_until = utils.utc_now() + lockdown_minutes
