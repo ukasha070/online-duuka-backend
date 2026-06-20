@@ -15,16 +15,20 @@ except ImportError:  # pragma: no cover - optional dependency guard
     JsonCoder = None  # type: ignore[assignment]
 
 
+def cache_prefix() -> str:
+    return str(getattr(settings, "CACHE_PREFIX", "online-duuka"))
+
+
+def cache_ttl_seconds() -> int:
+    return int(getattr(settings, "CACHE_DEFAULT_TTL_SECONDS", 300))
+
+
 def is_cache_available() -> bool:
     return FastAPICache is not None and RedisBackend is not None
 
 
 async def init_cache(app: FastAPI | None = None) -> None:
-    """Initialise fastapi-cache2 with Redis.
-
-    Local/test environments can still import the app if fastapi-cache2 is not
-    installed yet; caching simply becomes a no-op until the dependency exists.
-    """
+    """Initialise fastapi-cache2 with Redis."""
     if not is_cache_available():
         if app is not None:
             app.state.cache_enabled = False
@@ -33,8 +37,8 @@ async def init_cache(app: FastAPI | None = None) -> None:
     redis = await get_redis_client()
     FastAPICache.init(
         RedisBackend(redis),
-        prefix=settings.CACHE_PREFIX,
-        expire=settings.CACHE_DEFAULT_TTL_SECONDS,
+        prefix=cache_prefix(),
+        expire=cache_ttl_seconds(),
         coder=JsonCoder,
     )
 
@@ -43,13 +47,9 @@ async def init_cache(app: FastAPI | None = None) -> None:
 
 
 async def clear_cache_namespace(namespace: str = "*") -> int:
-    """Delete cache entries by namespace/pattern.
-
-    Example:
-        await clear_cache_namespace("products:*")
-    """
+    """Delete cache entries by namespace/pattern."""
     redis = await get_redis_client()
-    pattern = f"{settings.CACHE_PREFIX}:{namespace}"
+    pattern = f"{cache_prefix()}:{namespace}"
     keys = [key async for key in redis.scan_iter(pattern)]
     if not keys:
         return 0
