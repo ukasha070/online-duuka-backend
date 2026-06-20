@@ -51,7 +51,7 @@ class EmailService:
             password=settings.SMTP_PASSWORD,
             use_tls=settings.SMTP_USE_TLS,
             start_tls=settings.SMTP_STARTTLS if not settings.SMTP_USE_TLS else False,
-            timeout=settings.SMTP_TIMEOUT_SECONDS,
+            timeout=int(getattr(settings, "SMTP_TIMEOUT_SECONDS", 30)),
         )
 
     @staticmethod
