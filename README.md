@@ -1,30 +1,65 @@
 # Online Duuka Backend
 
-## Database Migrations
+FastAPI backend for Online Duuka.
 
-Alembic is configured for both common terminal locations:
+## Current branch layout
 
-- From `backend`, it uses `alembic.ini` and `src/migrations`.
-- From `backend/src`, it uses `src/alembic.ini` and `src/migrations`.
+This branch is moving the backend from the old `src/` layout toward the requested project-stack layout:
 
-It reads the same settings as the FastAPI app, including `DATABASE_URL` from
-`src/.env.local`.
-
-Run migrations:
-
-```bash
-uv run alembic upgrade head
+```text
+.
+├── alembic.ini
+├── alembic/
+├── app/
+│   ├── main.py
+│   ├── config.py
+│   ├── database.py
+│   ├── core/
+│   ├── models/
+│   ├── routers/
+│   ├── schemas/
+│   └── services/
+├── media/
+└── requirements.txt
 ```
 
-Create a new migration after changing SQLModel models:
+## Auth migration status
+
+The auth module has been started in the new `app/` layout:
+
+- `app/routers/auth.py` contains the merged auth endpoints for registration, login, refresh, logout, session management, password change, password reset, and 2FA.
+- `app/routers/users.py` contains user profile routes such as `GET /api/users/me` and `PATCH /api/users/me`.
+- `app/services/auth_service.py` contains the auth business logic.
+- `app/schemas/auth.py` contains the auth request and response schemas.
+- `app/core/security.py` contains password hashing and JWT helpers.
+- `app/core/dependencies.py` contains the authenticated-user and admin dependencies.
+
+Google OAuth routes are kept in `app/routers/auth.py` as route-contract placeholders and intentionally return `501` until the Google OAuth service is migrated.
+
+The old `src/` tree has not been deleted yet. It should be removed only after each old feature module has been migrated and verified.
+
+## Local development
+
+Create your environment file:
 
 ```bash
-uv run alembic revision --autogenerate -m "describe your change"
+cp .env.example .env
 ```
 
-Review generated migrations before applying them. For a SQL preview without
-touching the database:
+Install dependencies:
 
 ```bash
-uv run alembic upgrade head --sql
+pip install -r requirements.txt
+```
+
+Run the app:
+
+```bash
+uvicorn app.main:app --reload
+```
+
+Run Alembic migrations:
+
+```bash
+alembic upgrade head
 ```
