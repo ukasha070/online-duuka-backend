@@ -1,9 +1,13 @@
 from __future__ import annotations
 
+import logging
+
 from fastapi import FastAPI
 
 from app.config import settings
 from app.core.redis_client import get_redis_client
+
+logger = logging.getLogger(__name__)
 
 try:
     from fastapi_cache import FastAPICache
@@ -28,13 +32,25 @@ def is_cache_available() -> bool:
 
 
 async def init_cache(app: FastAPI | None = None) -> None:
-    """Initialise fastapi-cache2 with Redis."""
+    """Initialise fastapi-cache2 with Redis when Redis is reachable.
+
+    Cache should improve performance, but it must not prevent the API from
+    starting in local tests, CI, or temporary Redis outages.
+    """
     if not is_cache_available():
         if app is not None:
             app.state.cache_enabled = False
         return
 
-    redis = await get_redis_client()
+    try:
+        redis = await get_redis_client()
+        await redis.ping()
+    except Exception as exc:  # pragma: no cover - depends on external Redis
+        logger.warning("Redis cache unavailable; starting without cache: %s", exc)
+        if app is not None:
+            app.state.cache_enabled = False
+        return
+
     FastAPICache.init(
         RedisBackend(redis),
         prefix=cache_prefix(),
