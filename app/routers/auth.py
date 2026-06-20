@@ -3,6 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from sqlmodel.ext.asyncio.session import AsyncSession
 
+from app.config import settings
 from app.core.dependencies import get_current_user
 from app.core.security import create_two_factor_token
 from app.database import get_db
@@ -198,9 +199,12 @@ async def request_password_reset(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str | None]:
     token = await auth_service.create_password_reset_token(db, email=str(payload.email))
-    # In production this token should be emailed via Celery, not returned. Returning it in local/dev keeps
-    # the endpoint testable until the email task module is migrated into app/tasks.
-    return {"detail": "If that email exists, a password reset link has been prepared.", "debug_token": token}
+    response: dict[str, str | None] = {
+        "detail": "If that email exists, a password reset link has been prepared.",
+    }
+    if settings.ENV == "local":
+        response["debug_token"] = token
+    return response
 
 
 @router.post("/password-reset/confirm")
