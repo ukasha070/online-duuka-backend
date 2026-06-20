@@ -39,11 +39,15 @@ def set_test_env() -> None:
         os.environ.setdefault(key, value)
 
 
+def route_path(route) -> str | None:
+    return getattr(route, "path", None) or getattr(route, "path_format", None)
+
+
 def registered_routes(app) -> list[str]:
     rows: list[str] = []
     for route in app.routes:
         methods = sorted(getattr(route, "methods", set()) or [])
-        path = getattr(route, "path", "<no-path>")
+        path = route_path(route) or "<no-path>"
         rows.append(f"{','.join(methods)} {path}")
     return rows
 
@@ -52,7 +56,7 @@ def assert_route(app, path: str, method: str) -> None:
     method = method.upper()
     for route in app.routes:
         methods = getattr(route, "methods", set()) or set()
-        if getattr(route, "path", None) == path and method in methods:
+        if route_path(route) == path and method in methods:
             return
     joined_routes = "\n".join(registered_routes(app))
     raise AssertionError(f"Missing route: {method} {path}\nRegistered routes:\n{joined_routes}")
