@@ -24,9 +24,6 @@ from app.schemas.auth import (
     TwoFactorEnableResponse,
     TwoFactorValidatePayload,
     TwoFactorVerifyPayload,
-    UpdateMePayload,
-    UserResponse,
-    UserSessionResponse,
 )
 from app.services import auth_service
 
@@ -101,7 +98,7 @@ async def list_sessions(
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> SessionListResponse:
     sessions = await auth_service.list_user_sessions(db, user_id=current_user.id)
-    session_responses = [UserSessionResponse.model_validate(session) for session in sessions]
+    session_responses = [session_response(session) for session in sessions]
     return SessionListResponse(total=len(session_responses), sessions=session_responses)
 
 
@@ -113,25 +110,6 @@ async def revoke_session(
 ) -> dict[str, str]:
     await auth_service.revoke_session_by_id(db, user_id=current_user.id, session_id=session_id)
     return {"detail": "Session revoked successfully."}
-
-
-@router.get("/me", response_model=UserResponse)
-async def me(current_user: Annotated[User, Depends(get_current_user)]) -> UserResponse:
-    return auth_service.public_user(current_user)
-
-
-@router.patch("/me", response_model=UserResponse)
-async def update_me(
-    payload: UpdateMePayload,
-    current_user: Annotated[User, Depends(get_current_user)],
-    db: Annotated[AsyncSession, Depends(get_db)],
-) -> UserResponse:
-    if payload.full_name is not None:
-        current_user.full_name = payload.full_name
-        db.add(current_user)
-        await db.commit()
-        await db.refresh(current_user)
-    return auth_service.public_user(current_user)
 
 
 @router.post("/change-password")
@@ -236,3 +214,9 @@ async def google_callback(payload: GoogleCallbackPayload) -> dict[str, str]:
 @router.get("/health")
 async def auth_health() -> dict[str, str]:
     return {"router": "auth", "status": "ok"}
+
+
+def session_response(session) -> object:
+    from app.schemas.auth import UserSessionResponse
+
+    return UserSessionResponse.model_validate(session)
