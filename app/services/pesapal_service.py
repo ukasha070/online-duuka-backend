@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
@@ -7,21 +8,27 @@ from uuid import uuid4
 import httpx
 from fastapi import HTTPException, status
 
-from app.config import settings
+
+def _env(name: str, default: str | None = None) -> str | None:
+    return os.getenv(name, default)
+
+
+def _timeout_seconds() -> float:
+    return float(os.getenv("HTTP_TIMEOUT_SECONDS", "15"))
 
 
 class PesaPalService:
     """Small async client for PesaPal API 3.0 checkout, IPN and status flows."""
 
     def __init__(self) -> None:
-        self.base_url = settings.PESAPAL_BASE_URL.rstrip("/")
+        self.base_url = (_env("PESAPAL_BASE_URL", "https://pay.pesapal.com/v3") or "").rstrip("/")
 
     async def request_access_token(self) -> str:
         self._ensure_credentials()
 
         payload = {
-            "consumer_key": settings.PESAPAL_CONSUMER_KEY,
-            "consumer_secret": settings.PESAPAL_CONSUMER_SECRET,
+            "consumer_key": _env("PESAPAL_CONSUMER_KEY"),
+            "consumer_secret": _env("PESAPAL_CONSUMER_SECRET"),
         }
 
         data = await self._post("/api/Auth/RequestToken", json=payload, auth=False)
@@ -36,7 +43,7 @@ class PesaPalService:
     async def register_ipn_url(self, *, ipn_url: str | None = None, notification_type: str = "GET") -> dict[str, Any]:
         token = await self.request_access_token()
         payload = {
-            "url": ipn_url or settings.PESAPAL_IPN_URL,
+            "url": ipn_url or _env("PESAPAL_IPN_URL"),
             "ipn_notification_type": notification_type,
         }
         return await self._post("/api/URLSetup/RegisterIPN", json=payload, token=token)
@@ -61,11 +68,11 @@ class PesaPalService:
 
         payload: dict[str, Any] = {
             "id": merchant_reference,
-            "currency": currency or settings.PESAPAL_CURRENCY,
+            "currency": currency or _env("PESAPAL_CURRENCY", "UGX"),
             "amount": float(amount),
             "description": description,
-            "callback_url": callback_url or settings.PESAPAL_CALLBACK_URL,
-            "notification_id": notification_id or settings.PESAPAL_IPN_ID,
+            "callback_url": callback_url or _env("PESAPAL_CALLBACK_URL"),
+            "notification_id": notification_id or _env("PESAPAL_IPN_ID"),
             "billing_address": {
                 "email_address": email,
                 "phone_number": phone_number,
@@ -96,7 +103,7 @@ class PesaPalService:
     ) -> dict[str, Any]:
         headers = self._headers(token)
         try:
-            async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=_timeout_seconds()) as client:
                 response = await client.get(f"{self.base_url}{path}", params=params, headers=headers)
                 response.raise_for_status()
                 data: Any = response.json()
@@ -117,7 +124,7 @@ class PesaPalService:
     ) -> dict[str, Any]:
         headers = self._headers(token if auth else None)
         try:
-            async with httpx.AsyncClient(timeout=settings.HTTP_TIMEOUT_SECONDS) as client:
+            async with httpx.AsyncClient(timeout=_timeout_seconds()) as client:
                 response = await client.post(f"{self.base_url}{path}", json=json, headers=headers)
                 response.raise_for_status()
                 data: Any = response.json()
@@ -146,7 +153,7 @@ class PesaPalService:
 
     @staticmethod
     def _ensure_credentials() -> None:
-        if not settings.PESAPAL_CONSUMER_KEY or not settings.PESAPAL_CONSUMER_SECRET:
+        if not _env("PESAPAL_CONSUMER_KEY") or not _env("PESAPAL_CONSUMER_SECRET"):
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="PesaPal credentials are not configured.",
