@@ -9,7 +9,7 @@ from slowapi.errors import RateLimitExceeded
 from app.config import settings
 from app.core._orjson import CustomORJSONResponse
 from app.core.redis_client import close_redis_client
-from app.routers import admin, agents, auth, billing, boosters, conversations, locations, products, shops, users
+from app.routers import admin, agents, auth, billing, boosters, conversations, google_oauth, locations, products, shops, users
 from app.services.cache_service import init_cache
 
 
@@ -51,6 +51,9 @@ if static_dir.exists():
 media_dir.mkdir(parents=True, exist_ok=True)
 app.mount("/media", StaticFiles(directory=media_dir), name="media")
 
+# Mount Google OAuth before the broader auth router so migrated OAuth
+# endpoints take precedence over legacy placeholder routes.
+app.include_router(google_oauth.router, prefix="/api/auth", tags=["Google OAuth"])
 app.include_router(auth.router, prefix="/api/auth", tags=["Authentication"])
 app.include_router(users.router, prefix="/api/users", tags=["Users"])
 app.include_router(agents.router, prefix="/api/agents", tags=["Agents"])
