@@ -43,4 +43,13 @@ jobs:
         run: python -m compileall app scripts
 
       - name: Run auth/user smoke test
-        run: python scripts/smoke_auth_user.py
+        run: |
+          set -o pipefail
+          python scripts/smoke_auth_user.py 2>&1 | tee smoke-auth-user.log
+
+      - name: Upload smoke test log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-auth-user-log
+          path: smoke-auth-user.log
