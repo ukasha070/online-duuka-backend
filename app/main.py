@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -6,7 +8,17 @@ from slowapi.errors import RateLimitExceeded
 
 from app.config import settings
 from app.core._orjson import CustomORJSONResponse
+from app.core.redis_client import close_redis_client
 from app.routers import admin, agents, auth, billing, boosters, conversations, locations, products, shops, users
+from app.services.cache_service import init_cache
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await init_cache(app)
+    yield
+    await close_redis_client()
+
 
 app = FastAPI(
     title="Online Duuka API",
@@ -15,6 +27,7 @@ app = FastAPI(
     default_response_class=CustomORJSONResponse,
     docs_url=None if settings.ENV == "production" else "/docs",
     redoc_url=None if settings.ENV == "production" else "/redoc",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -25,7 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-limiter = Limiter(key_func=lambda request: request.client.host)
+limiter = Limiter(key_func=lambda request: request.client.host if request.client else "unknown")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
@@ -51,5 +64,5 @@ app.include_router(admin.router, prefix="/api/admin", tags=["Admin"])
 
 
 @app.get("/api/health")
-async def health_check() -> dict[str, str]:
-    return {"message": "Service is running"}
+async def health_check() -> dict[str, str | bool]:
+    return {"message": "Service is running", "cache_enabled": bool(getattr(app.state, "cache_enabled", False))}
