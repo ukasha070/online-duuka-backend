@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from typing import Any
 
 import httpx
@@ -8,6 +9,13 @@ from fastapi import HTTPException, status
 from app.config import settings
 
 TURNSTILE_SITEVERIFY_URL = "https://challenges.cloudflare.com/turnstile/v0/siteverify"
+
+
+def _bool_env(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None:
+        return default
+    return value.lower() in {"1", "true", "yes", "on"}
 
 
 async def verify_turnstile_token(
@@ -22,20 +30,22 @@ async def verify_turnstile_token(
 
     Local mode skips verification unless TURNSTILE_FORCE_VERIFY=true.
     """
-    if settings.ENV == "local" and not settings.TURNSTILE_FORCE_VERIFY:
+    force_verify = _bool_env("TURNSTILE_FORCE_VERIFY", False)
+    if settings.ENV == "local" and not force_verify:
         return True
 
     if not token:
         return False
 
-    if not settings.TURNSTILE_SECRET_KEY:
+    secret_key = os.getenv("TURNSTILE_SECRET_KEY")
+    if not secret_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Turnstile is not configured.",
         )
 
     payload: dict[str, str] = {
-        "secret": settings.TURNSTILE_SECRET_KEY,
+        "secret": secret_key,
         "response": token,
     }
 
@@ -43,7 +53,7 @@ async def verify_turnstile_token(
         payload["remoteip"] = remote_ip
 
     try:
-        async with httpx.AsyncClient(timeout=timeout_seconds or settings.HTTP_TIMEOUT_SECONDS) as client:
+        async with httpx.AsyncClient(timeout=timeout_seconds or float(os.getenv("HTTP_TIMEOUT_SECONDS", "15"))) as client:
             response = await client.post(TURNSTILE_SITEVERIFY_URL, data=payload)
             response.raise_for_status()
             data: Any = response.json()
@@ -56,7 +66,7 @@ async def verify_turnstile_token(
     if not isinstance(data, dict) or data.get("success") is not True:
         return False
 
-    hostname = expected_hostname or settings.TURNSTILE_EXPECTED_HOSTNAME
+    hostname = expected_hostname or os.getenv("TURNSTILE_EXPECTED_HOSTNAME")
     if hostname and data.get("hostname") != hostname:
         return False
 
