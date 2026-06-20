@@ -1,14 +1,49 @@
 # Online Duuka Backend
 
-## Database Migrations
+FastAPI backend for Online Duuka, structured around the project stack.
 
-Alembic is configured for both common terminal locations:
+## Project layout
 
-- From `backend`, it uses `alembic.ini` and `src/migrations`.
-- From `backend/src`, it uses `src/alembic.ini` and `src/migrations`.
+```text
+app/
+  main.py
+  config.py
+  database.py
+  core/
+  middleware/
+  models/
+  routers/
+  schemas/
+  services/
+  tasks/
+alembic/
+  env.py
+  versions/
+media/
+  avatars/
+  shops/
+  products/
+```
 
-It reads the same settings as the FastAPI app, including `DATABASE_URL` from
-`src/.env.local`.
+Models are grouped by domain while still using SQLModel:
+
+- `app/models/user.py` — user, session, 2FA, password reset and verification models
+- `app/models/agent.py` — agent and commission models
+- `app/models/shop.py` — shop and location models
+- `app/models/product.py` — product models
+- `app/models/billing.py` — subscription and billing models
+- `app/models/booster.py` — booster pack and active booster models
+- `app/models/chat.py` — conversation, participants and messages
+
+## Run locally
+
+```bash
+uvicorn app.main:app --reload
+```
+
+## Database migrations
+
+Alembic now uses the root `alembic/` folder and imports models from `app.models`.
 
 Run migrations:
 
@@ -22,8 +57,7 @@ Create a new migration after changing SQLModel models:
 uv run alembic revision --autogenerate -m "describe your change"
 ```
 
-Review generated migrations before applying them. For a SQL preview without
-touching the database:
+Review generated migrations before applying them:
 
 ```bash
 uv run alembic upgrade head --sql
