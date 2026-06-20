@@ -40,23 +40,41 @@ def set_test_env() -> None:
 
 
 def route_path(route) -> str | None:
-    return getattr(route, "path", None) or getattr(route, "path_format", None)
+    path = getattr(route, "path", None) or getattr(route, "path_format", None)
+    if path:
+        return path
+    path_regex = getattr(route, "path_regex", None)
+    pattern = getattr(path_regex, "pattern", None)
+    return pattern
+
+
+def route_methods(route) -> set[str]:
+    return set(getattr(route, "methods", set()) or set())
 
 
 def registered_routes(app) -> list[str]:
     rows: list[str] = []
     for route in app.routes:
-        methods = sorted(getattr(route, "methods", set()) or [])
+        methods = sorted(route_methods(route))
         path = route_path(route) or "<no-path>"
-        rows.append(f"{','.join(methods)} {path}")
+        rows.append(
+            " | ".join(
+                [
+                    f"type={type(route).__module__}.{type(route).__name__}",
+                    f"name={getattr(route, 'name', None)}",
+                    f"methods={','.join(methods)}",
+                    f"path={path}",
+                    f"repr={route!r}",
+                ]
+            )
+        )
     return rows
 
 
 def assert_route(app, path: str, method: str) -> None:
     method = method.upper()
     for route in app.routes:
-        methods = getattr(route, "methods", set()) or set()
-        if route_path(route) == path and method in methods:
+        if route_path(route) == path and method in route_methods(route):
             return
     joined_routes = "\n".join(registered_routes(app))
     raise AssertionError(f"Missing route: {method} {path}\nRegistered routes:\n{joined_routes}")
