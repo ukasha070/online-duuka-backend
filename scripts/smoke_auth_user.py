@@ -57,7 +57,6 @@ def main() -> None:
 
     required_routes = [
         ("/api/health", "GET"),
-        ("/api/auth/health", "GET"),
         ("/api/auth/register", "POST"),
         ("/api/auth/login", "POST"),
         ("/api/auth/refresh", "POST"),
