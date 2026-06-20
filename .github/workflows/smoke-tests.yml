@@ -1,0 +1,46 @@
+name: App smoke tests
+
+on:
+  push:
+    branches:
+      - refactor/project-stack-layout
+  pull_request:
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    env:
+      ENV: local
+      DATABASE_URL: postgresql+asyncpg://online_duuka:online_duuka@localhost:5432/online_duuka_test
+      SECRET_KEY: test-secret-key
+      JWT_SECRET_KEY: test-jwt-secret-key
+      JWT_AUDIENCE: online-duuka-test-client
+      GOOGLE_CLIENT_ID: test-google-client-id
+      GOOGLE_CLIENT_SECRET: test-google-client-secret
+      GOOGLE_REDIRECT_URI: http://localhost:8000/api/auth/google/callback
+      SMTP_HOST: localhost
+      SMTP_USERNAME: test@example.com
+      SMTP_PASSWORD: test-password
+      SMTP_FROM_EMAIL: noreply@example.com
+      CELERY_BROKER_URL: redis://localhost:6379/0
+      CELERY_RESULT_BACKEND: redis://localhost:6379/1
+      REDIS_URL: redis://localhost:6379/2
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -r requirements.txt
+
+      - name: Compile app package
+        run: python -m compileall app scripts
+
+      - name: Run auth/user smoke test
+        run: python scripts/smoke_auth_user.py
