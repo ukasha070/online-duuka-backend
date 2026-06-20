@@ -26,20 +26,48 @@ from app.schemas.auth import (
     TwoFactorVerifyPayload,
 )
 from app.services import auth_service
+from app.services.turnstile_service import validate_turnstile_token
+from app.services.verification_service import create_email_verification_token
+from app.tasks.email_tasks import (
+    send_new_login_alert_email,
+    send_password_changed_email,
+    send_password_reset_email,
+    send_two_factor_security_email,
+    send_verification_email,
+    send_welcome_email,
+)
 
 router = APIRouter()
 
 
 @router.post("/register", status_code=status.HTTP_201_CREATED)
 @router.post("/signup", status_code=status.HTTP_201_CREATED, include_in_schema=False)
-async def register(payload: RegisterPayload, db: Annotated[AsyncSession, Depends(get_db)]) -> dict[str, str]:
-    await auth_service.create_email_user(
+async def register(
+    payload: RegisterPayload,
+    request: Request,
+    db: Annotated[AsyncSession, Depends(get_db)],
+) -> dict[str, str]:
+    await validate_turnstile_token(
+        payload.turnstile_token,
+        remote_ip=auth_service.get_client_ip(request),
+        expected_action="register",
+    )
+
+    user = await auth_service.create_email_user(
         db,
         email=str(payload.email),
         full_name=payload.full_name,
         password=payload.password,
     )
-    return {"detail": "Account created successfully. Please verify your email."}
+
+    send_welcome_email.delay(user.email, user.full_name)
+    verification_token = await create_email_verification_token(db, user=user)
+    send_verification_email.delay(user.email, verification_token, user.full_name)
+
+    response = {"detail": "Account created successfully. Please verify your email."}
+    if settings.ENV == "local":
+        response["debug_verification_token"] = verification_token
+    return response
 
 
 @router.post("/login", response_model=TokenResponse | TwoFactorChallengeResponse)
@@ -49,6 +77,12 @@ async def login(
     request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> TokenResponse | TwoFactorChallengeResponse:
+    await validate_turnstile_token(
+        payload.turnstile_token,
+        remote_ip=auth_service.get_client_ip(request),
+        expected_action="login",
+    )
+
     user = await auth_service.authenticate_email_user(
         db,
         email=str(payload.email),
@@ -58,13 +92,24 @@ async def login(
     if await auth_service.is_two_factor_enabled(db, user_id=user.id):
         return TwoFactorChallengeResponse(two_factor_token=create_two_factor_token(user_id=user.id))
 
-    return await auth_service.create_login_session(
+    token_response = await auth_service.create_login_session(
         db,
         user=user,
         payload=payload,
         ip_address=auth_service.get_client_ip(request),
         user_agent=auth_service.get_user_agent(request),
     )
+
+    send_new_login_alert_email.delay(
+        user.email,
+        user.full_name,
+        auth_service.get_client_ip(request),
+        auth_service.get_user_agent(request),
+        None,
+        None,
+    )
+
+    return token_response
 
 
 @router.post("/refresh", response_model=TokenResponse)
@@ -115,15 +160,24 @@ async def revoke_session(
 @router.post("/change-password")
 async def change_password(
     payload: ChangePasswordPayload,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
+    await validate_turnstile_token(
+        payload.turnstile_token,
+        remote_ip=auth_service.get_client_ip(request),
+        expected_action="change_password",
+    )
+
     await auth_service.change_password(
         db,
         user=current_user,
         current_password=payload.current_password,
         new_password=payload.new_password,
     )
+
+    send_password_changed_email.delay(current_user.email, current_user.full_name)
     return {"detail": "Password changed successfully. Please login again."}
 
 
@@ -139,10 +193,19 @@ async def enable_two_factor(
 @router.post("/2fa/verify")
 async def verify_two_factor_setup(
     payload: TwoFactorVerifyPayload,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     await auth_service.verify_two_factor_setup(db, user=current_user, code=payload.code)
+    send_two_factor_security_email.delay(
+        current_user.email,
+        "enabled",
+        current_user.full_name,
+        auth_service.get_client_ip(request),
+        auth_service.get_user_agent(request),
+        None,
+    )
     return {"detail": "2FA enabled successfully."}
 
 
@@ -164,21 +227,41 @@ async def validate_two_factor_login(
 @router.post("/2fa/disable")
 async def disable_two_factor(
     payload: TwoFactorDisablePayload,
+    request: Request,
     current_user: Annotated[User, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str]:
     await auth_service.disable_two_factor(db, user=current_user, password=payload.password, code=payload.code)
+    send_two_factor_security_email.delay(
+        current_user.email,
+        "disabled",
+        current_user.full_name,
+        auth_service.get_client_ip(request),
+        auth_service.get_user_agent(request),
+        None,
+    )
     return {"detail": "2FA disabled successfully."}
 
 
 @router.post("/password-reset/request")
 async def request_password_reset(
     payload: PasswordResetRequestPayload,
+    request: Request,
     db: Annotated[AsyncSession, Depends(get_db)],
 ) -> dict[str, str | None]:
+    await validate_turnstile_token(
+        payload.turnstile_token,
+        remote_ip=auth_service.get_client_ip(request),
+        expected_action="password_reset",
+    )
+
     token = await auth_service.create_password_reset_token(db, email=str(payload.email))
+    if token:
+        user = await auth_service.get_user_by_email(db, str(payload.email))
+        send_password_reset_email.delay(str(payload.email), token, user.full_name if user else None)
+
     response: dict[str, str | None] = {
-        "detail": "If that email exists, a password reset link has been prepared.",
+        "detail": "If that email exists, a password reset link has been sent.",
     }
     if settings.ENV == "local":
         response["debug_token"] = token
@@ -196,7 +279,6 @@ async def confirm_password_reset(
 
 @router.get("/google")
 async def google_oauth_url() -> dict[str, str]:
-    # Full Google OAuth service migration is separate; this keeps the route contract stable.
     raise HTTPException(
         status_code=status.HTTP_501_NOT_IMPLEMENTED,
         detail="Google OAuth service has not been migrated yet.",
