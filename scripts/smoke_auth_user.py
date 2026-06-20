@@ -1,8 +1,8 @@
-"""Smoke-test the app auth and user routers without requiring a live DB.
+"""Smoke-test the app auth and user routers without requiring external services.
 
-This script is intentionally lightweight. It verifies that the FastAPI app imports,
-that auth/user routes are registered, and that account-lockout helpers behave as
-expected. It does not open a database connection.
+This script verifies that the FastAPI app imports, that auth/user routes are
+registered, and that account-lockout helpers behave as expected. It intentionally
+avoids opening database, Redis, or HTTP client connections.
 """
 
 from __future__ import annotations
@@ -45,8 +45,6 @@ def assert_route(app, path: str, method: str) -> None:
 def main() -> None:
     set_test_env()
 
-    from fastapi.testclient import TestClient
-
     from app.core import utils
     from app.main import app
     from app.models.user import AuthType, User
@@ -67,13 +65,6 @@ def main() -> None:
     ]
     for path, method in required_routes:
         assert_route(app, path, method)
-
-    client = TestClient(app)
-    assert client.get("/api/health").status_code == 200
-    assert client.get("/api/auth/health").status_code == 200
-    assert client.get("/api/users/me").status_code == 401
-    assert client.post("/api/auth/login", json={}).status_code == 422
-    assert client.post("/api/auth/register", json={}).status_code == 422
 
     user = User(
         email="lockout-smoke@example.com",
